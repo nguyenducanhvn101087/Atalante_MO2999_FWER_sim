@@ -1,0 +1,128 @@
+---
+title: "Atalante MO2999 FWER Simulation"
+author: "Anh Nguyen Duc"
+# date: "12/13/2018"
+# output: word_document
+
+output:
+  html_document:
+    toc: yes
+    toc_float: true
+    to_depth: 5
+    collapsed: false
+    smooth_scroll: false
+    number_sections: true
+    theme: united
+  word_document: default
+header-includes: \usepackage{docmute}
+classoption: landscape
+---
+
+```{r,echo=F,message=F,warning=F}
+rm(list=ls())
+# source('ADA5W_OPTIMAL_MATCHING_12SEP2018_29522.R')
+# source('ADA5W_TOLERANCE_MATCHING_12SEP2018_29522.R')
+require(knitr)
+require(haven)
+require(magrittr)
+require(gmodels)
+require(tidyverse)
+require(ldbounds)
+require(gsDesign)
+require(msm)
+require(xlsx)
+require(rpact)
+require(survival)
+require(survminer)
+# source("../../../../../../../../Methods/R/survivalSampleSizeMisc.R")
+# source('../../../../../../../../Methods/Surv/Non_PH/NPH.R')
+knitr::opts_chunk$set(echo = TRUE, cache=FALSE, autodep=FALSE)
+# source("https://raw.github.roche.com/adaptR/adaptR-tutorials/master/simpleBoundarySummary.R")
+set.seed(21)
+```
+
+
+
+# Simulation demonstrating type-I error inflation for OS and PFS May 2021
+
+For simplicity we consider only one OS analysis in the ITT
+
+```{r,echo=T,message=F,warning=F}
+require(tidyverse)
+require(mvtnorm)
+require(knitr)
+
+hr_pfs_pdl1 <- 0.62
+hr_pfs_itt  <- 1
+hr_os_itt   <- 1
+
+prev_pdl1   <- 0.4
+
+ev_pfs_pdl1 <- (490*prev_pdl1) %>% ceiling
+ev_pfs_itt  <- 490
+ev_os_itt   <- 490
+
+# see (1) and (2) of https://www.sciencedirect.com/science/article/pii/S155171442030327X#! or Chapter 3 of Group Sequential Methods with Applications to Clinical Trials. Christopher Jennison and Bruce W. Turnbull.
+
+fac <- (1/3 * (1 - 1/3)) ^ (-1)
+
+mean_vec <- c(log(hr_pfs_pdl1) * sqrt(ev_pfs_pdl1/fac), log(hr_pfs_itt) * sqrt(ev_pfs_itt/fac), log(hr_os_itt) * sqrt(ev_os_itt/fac))
+
+
+cor_pfs_pdl1_os_itts  <- seq(0.1, .8, 0.1)
+cor_pfs_itt_os_itts   <- seq(0.1, .8, 0.1)
+
+res <- res2 <- res3 <- matrix(NA, nrow=length(cor_pfs_pdl1_os_itts), ncol=length(cor_pfs_itt_os_itts))
+
+for (id1 in 1:length(cor_pfs_pdl1_os_itts)) {
+  
+  for (id2 in 1:length(cor_pfs_itt_os_itts)) {
+    
+    cor_pfs_pdl1_os_itt  <- cor_pfs_pdl1_os_itts[id1]
+    cor_pfs_itt_os_itt   <- cor_pfs_itt_os_itts[id2]
+    
+    covmat <- rbind(
+      c(1,                            sqrt(ev_pfs_pdl1/ev_pfs_itt), cor_pfs_pdl1_os_itt),
+      c(sqrt(ev_pfs_pdl1/ev_pfs_itt), 1,                            cor_pfs_itt_os_itt ),
+      c(cor_pfs_pdl1_os_itt,          cor_pfs_itt_os_itt,           1)
+    )
+    
+    
+    n_sim <- 1e5
+    set.seed(21)
+    
+    # sim based - pmvnorm might not be stable
+    simdat <- rmvnorm(n=n_sim, mean=mean_vec, sigma=covmat)
+    colnames(simdat) <- c('LR stat PFS_PDL1', 'LR stat PFS_ITT', 'LR stat OS_ITT')
+    
+    res[id1, id2] <-
+    (sum(pnorm(simdat[,'LR stat PFS_ITT'], lower.tail = T) <=.025/2) +  
+     sum(pnorm(simdat[,'LR stat PFS_ITT'], lower.tail = T) >.025/2 & pnorm(simdat[,'LR stat PFS_PDL1'], lower.tail = T) <=.025/2 & pnorm(simdat[,'LR stat OS_ITT'], lower.tail = T) <=.05/2)
+     
+     ) / n_sim * 2
+    
+    # correct method without alpha recyling
+    res2[id1, id2] <-
+    (sum(pnorm(simdat[,'LR stat PFS_ITT'], lower.tail = T) <=.025/2) +  
+     sum(pnorm(simdat[,'LR stat PFS_ITT'], lower.tail = T) >.025/2 & pnorm(simdat[,'LR stat PFS_PDL1'], lower.tail = T) <=.025/2 & pnorm(simdat[,'LR stat OS_ITT'], lower.tail = T) <=.025/2) 
+     ) / n_sim * 2    
+    
+    # correct method with alpha recyling 
+    res3[id1, id2] <-
+    (sum(pnorm(simdat[,'LR stat PFS_ITT'], lower.tail = T) <=.025/2 & pnorm(simdat[,'LR stat PFS_PDL1'], lower.tail = T) >.025/2) +
+     sum(pnorm(simdat[,'LR stat PFS_ITT'], lower.tail = T) <=.05/2 & pnorm(simdat[,'LR stat PFS_PDL1'], lower.tail = T) <=.025/2) 
+
+     ) / n_sim * 2
+   
+  } # end of for (id2 in 1:length(cor_pfs_itt_os_itts))
+} # end of for (id1 in 1:length(cor_pfs_pdl1_os_itts)) 
+
+rownames(res) <- cor_pfs_pdl1_os_itts
+res %>% kable(col.names = cor_pfs_itt_os_itts)
+
+rownames(res2) <- cor_pfs_pdl1_os_itts
+res2 %>% kable(col.names = cor_pfs_itt_os_itts)
+
+rownames(res3) <- cor_pfs_pdl1_os_itts
+res3 %>% kable(col.names = cor_pfs_itt_os_itts)
+```
