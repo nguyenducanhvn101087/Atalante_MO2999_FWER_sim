@@ -45,7 +45,7 @@ set.seed(21)
 
 # Simulation demonstrating type-I error inflation for OS and PFS May 2021
 
-For simplicity we consider only one OS analysis in the ITT
+For simplicity we consider only one OS analysis in the ITT and assume that the standardized log-rank statistics of OS and PFS endpoints follow multivariate normal distribution.
 
 ```{r,echo=T,message=F,warning=F}
 require(tidyverse)
